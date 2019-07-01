@@ -63,7 +63,7 @@ Public Class frmDeliverySheet
     End Sub
 
     Public Sub getDrivers()
-        SQL = "SELECT     ID, Name  FROM spilDriverMaster"
+        SQL = "SELECT     ID, Name, driverEmail FROM spilDriverMaster"
         Dim oSQL As New clsSqlConn
         With oSQL
             DS = New DataSet()
@@ -147,6 +147,7 @@ Public Class frmDeliverySheet
         If objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually Then
             tsmRefreshQuantities.Visible = False
         End If
+        GoogleMapControllerHandler(isGoogleAPIActive)
     End Sub
 
     Private Sub VisibleSelectByPieceBCode()
@@ -264,17 +265,17 @@ Public Class frmDeliverySheet
         Try
 
             SQL = "select * from spilRunnSheetHeader where RunnNo=" & txtRunnNumber.Value & " "
-            SQL += " SELECT spilRunnSheetDetail.RecID, spilRunnSheetDetail.ThisTimeQty, " & _
-                "spilRunnSheetDetail.OrderIndex, spilRunnSheetDetail.Status,spilRunnSheetDetail.Comment, spilPROD_STATES.ProdStateName, spilInvNum.OrderNum, " & _
-                "spilInvNum.Delivery_Status, Client.DCLink, Client.Name, spilInvNum.OrderDate, spilInvNum.Address4 As Suburb, spilRunnSheetDetail.BalanceToDeliver," & _
-                "spilInvNum.ExtOrderNum, spilInvNum.TotalFinishedItems AS OrderFinishedItems, " & _
-                "spilInvNum.TotalGlassPanels AS TotalGlassPanels, " & _
-                "spilInvNum.DeliveredFinishedItems AS DeliveredFinishedItems, Areas.idAreas, " & _
-                "Areas.Description, spilInvNum.DueDate,spilPROD_STATES.ProductionState, spilInvNum.DocType " & _
-                "FROM spilRunnSheetDetail INNER JOIN " & _
-                "spilInvNum ON spilRunnSheetDetail.OrderIndex = spilInvNum.OrderIndex INNER JOIN " & _
-                "spilPROD_STATES ON spilInvNum.ProductionState = spilPROD_STATES.ProductionState INNER JOIN " & _
-                "Client ON spilInvNum.AccountID = Client.DCLink LEFT OUTER JOIN " & _
+            SQL += " SELECT spilRunnSheetDetail.RecID, spilRunnSheetDetail.ThisTimeQty, " &
+                "spilRunnSheetDetail.OrderIndex, spilRunnSheetDetail.Status,spilRunnSheetDetail.Comment, spilPROD_STATES.ProdStateName, spilInvNum.OrderNum, " &
+                "spilInvNum.Delivery_Status, Client.DCLink, Client.Name, spilInvNum.OrderDate, " &
+                "spilInvNum.ExtOrderNum, spilInvNum.TotalFinishedItems AS OrderFinishedItems, " &
+                "spilInvNum.TotalGlassPanels AS TotalGlassPanels, " &
+                "spilInvNum.DeliveredFinishedItems AS DeliveredFinishedItems, Areas.idAreas, " &
+                "Areas.Description, spilInvNum.DueDate,spilPROD_STATES.ProductionState, spilInvNum.DocType, spilRunnSheetDetail.geoCoordinations " &
+                "FROM spilRunnSheetDetail INNER JOIN " &
+                "spilInvNum ON spilRunnSheetDetail.OrderIndex = spilInvNum.OrderIndex INNER JOIN " &
+                "spilPROD_STATES ON spilInvNum.ProductionState = spilPROD_STATES.ProductionState INNER JOIN " &
+                "Client ON spilInvNum.AccountID = Client.DCLink LEFT OUTER JOIN " &
                 "Areas ON spilInvNum.iAreasID = Areas.idAreas where RunnNo=" & txtRunnNumber.Value & " "
             SQL += " SELECT * FROM spilRunnSheetDetailLines WHERE RunnNo= " & txtRunnNumber.Value & " "
 
@@ -304,7 +305,7 @@ Public Class frmDeliverySheet
                 ugR.Cells("ThisTimeDelivery").Value = dr1("ThisTimeQty")
                 ugR.Cells("TotalGlassPanels").Value = dr1("TotalGlassPanels")
                 ugR.Cells("Comment").Value = dr1("Comment")
-                ugR.Cells("BalanceToDeliver").Value = dr1("BalanceToDeliver")
+                ugR.Cells("geoCoordinations").Value = dr1("geoCoordinations")
 
                 If ugR.Cells("RunnStatus").Value = DeliveryState.Delivered Then
                     ugR.Activation = Activation.Disabled
@@ -362,6 +363,10 @@ Public Class frmDeliverySheet
                 txtRunnTime.Value = dr1("RunnTime")
                 cmbFacility.Value = dr1("FacilityID")
                 cmbDuration.Value = dr1("Duration")
+                If dr1("googleMapImagePath") <> "" AndAlso isGoogleAPIActive = True Then
+                    pbGoogleMap.Image = Image.FromFile(dr1("googleMapImagePath"))
+                    btnRefreshGoogleMap.Visible = False
+                End If
             Next
 
             For Each drSOLine As DataRow In DS_ITEMS.Tables(2).Rows
@@ -381,7 +386,6 @@ Public Class frmDeliverySheet
                 ugR.Cells("ThisDelQty").Activation = Activation.AllowEdit
                 ugR.Cells("ThisDelQty").Value = drSOLine("ThisDelQty")
                 ugR.Cells("GlassWeight").Value = drSOLine("GlassWeight")
-                ugR.Cells("BackOrder").Value = drSOLine("BackOrder")
 
                 If drSOLine("LineTypeID") = LineState.NCR Then
                     ugR.Cells("LineType").Value = "NCR"
@@ -613,9 +617,9 @@ Public Class frmDeliverySheet
 
 
         If Status = DeliveryState.Delivered Then
-            strQuery = "SELECT ISNULL(SUM(ThisTimeQty),0) As TotRunnSheetQty FROM spilRunnSheetDetail " & _
-            "INNER JOIN spilRunnSheetHeader ON spilRunnSheetDetail.RunnNo = spilRunnSheetHeader.RunnNo " & _
-            "WHERE spilRunnSheetDetail.OrderIndex = " & OrderIndex & " AND " & _
+            strQuery = "SELECT ISNULL(SUM(ThisTimeQty),0) As TotRunnSheetQty FROM spilRunnSheetDetail " &
+            "INNER JOIN spilRunnSheetHeader ON spilRunnSheetDetail.RunnNo = spilRunnSheetHeader.RunnNo " &
+            "WHERE spilRunnSheetDetail.OrderIndex = " & OrderIndex & " AND " &
             "spilRunnSheetDetail.RunnNo = " & txtRunnNumber.Value & ""
 
             RunnSheetConfirmQty = objSQL.Get_ScalerINTEGER(strQuery)
@@ -636,26 +640,26 @@ Public Class frmDeliverySheet
 
         objSQL.Begin_Trans()
 
-        strQuery = "DELETE FROM spilRunnSheetDownloadedBarCodes WHERE SerialBarcodeValue " & _
-            "IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE Qty_ReBatched = 1 AND " & _
+        strQuery = "DELETE FROM spilRunnSheetDownloadedBarCodes WHERE SerialBarcodeValue " &
+            "IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE Qty_ReBatched = 1 AND " &
             "OrderIndex = " & OrderIndex & ") AND Status = 'AUTO'"
         If objSQL.Exe_Query_Trans(strQuery) = 0 Then
             objSQL.Rollback_Trans()
             Exit Function
         End If
 
-        strQuery = "SELECT TOP(1) spilPROD_BATCH.STATION_TP_ID FROM spilInvNumLines WITH (NOLOCK) INNER JOIN " & _
-            "spilPROD_BATCH WITH (NOLOCK) ON spilInvNumLines.iInvDetailID = spilPROD_BATCH.iInvDetailID " & _
+        strQuery = "SELECT TOP(1) spilPROD_BATCH.STATION_TP_ID FROM spilInvNumLines WITH (NOLOCK) INNER JOIN " &
+            "spilPROD_BATCH WITH (NOLOCK) ON spilInvNumLines.iInvDetailID = spilPROD_BATCH.iInvDetailID " &
             "WHERE (spilInvNumLines.OrderIndex = " & OrderIndex & ") ORDER BY spilPROD_BATCH.ProcessPath DESC"
 
         DelStation = objSQL.Get_ScalerINTEGER_WithTrans(strQuery)
         If DelStation <= 0 Then Exit Function
 
-        strQuery = "SELECT BarCodeV FROM spilPROD_SERIALS WITH (NOLOCK) WHERE " & _
-            "OrderIndex = " & OrderIndex & " AND STATION_TP_ID = " & DelStation & " AND Qty_In > 0 " & _
-            "AND Qty_Out = 0 AND BarCodeV NOT IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE " & _
+        strQuery = "SELECT BarCodeV FROM spilPROD_SERIALS WITH (NOLOCK) WHERE " &
+            "OrderIndex = " & OrderIndex & " AND STATION_TP_ID = " & DelStation & " AND Qty_In > 0 " &
+            "AND Qty_Out = 0 AND BarCodeV NOT IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE " &
             "Qty_ReBatched = 1 AND OrderIndex = " & OrderIndex & ");"
-        strQuery += "SELECT RecID, RunnNo, SerialBarcodeValue, OrderIndex FROM spilRunnSheetDownloadedBarCodes " & _
+        strQuery += "SELECT RecID, RunnNo, SerialBarcodeValue, OrderIndex FROM spilRunnSheetDownloadedBarCodes " &
             "WHERE OrderIndex = " & OrderIndex & ""
         dsDesSchQty = objSQL.Get_Data_Trans(strQuery)
 
@@ -673,8 +677,8 @@ Public Class frmDeliverySheet
             strQuery = "SELECT iInvDetailID FROM spilPROD_SERIALS WHERE BarCodeV = '" & sDesSchBarcode & "'"
             Dim iInvDetailID As Integer = objSQL.Get_ScalerINTEGER_WithTrans(strQuery)
 
-            strQuery = "SET DATEFORMAT DMY INSERT INTO spilRunnSheetDownloadedBarCodes " & _
-                "(RunnNo,BarcodeValue,BarcodeTrolley,TaggedTime,Status,Qty,SerialBarcodeValue,OrderIndex,iInvDetailID) " & _
+            strQuery = "SET DATEFORMAT DMY INSERT INTO spilRunnSheetDownloadedBarCodes " &
+                "(RunnNo,BarcodeValue,BarcodeTrolley,TaggedTime,Status,Qty,SerialBarcodeValue,OrderIndex,iInvDetailID) " &
                 "VALUES (-999,'','','" & Now & "','AUTO',1,'" & sDesSchBarcode & "'," & OrderIndex & "," & iInvDetailID & ")"
             If objSQL.Exe_Query_Trans(strQuery) = 0 Then
                 objSQL.Rollback_Trans()
@@ -698,15 +702,15 @@ Public Class frmDeliverySheet
 
         objSQL.Begin_Trans()
 
-        strQuery = "DELETE FROM spilRunnSheetDownloadedBarCodes WHERE SerialBarcodeValue " & _
-            "IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE Qty_ReBatched = 1 AND " & _
+        strQuery = "DELETE FROM spilRunnSheetDownloadedBarCodes WHERE SerialBarcodeValue " &
+            "IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE Qty_ReBatched = 1 AND " &
             "OrderIndex = " & OrderIndex & ") AND Status = 'OK'"
         If objSQL.Exe_Query_Trans(strQuery) = 0 Then
             objSQL.Rollback_Trans()
             Exit Function
         End If
 
-        strQuery = "SELECT COUNT(BarcodeValue) FROM spilRunnSheetDownloadedBarCodes " & _
+        strQuery = "SELECT COUNT(BarcodeValue) FROM spilRunnSheetDownloadedBarCodes " &
            "WHERE OrderIndex = " & OrderIndex & " AND Status = 'OK' AND RunnNo = -999"
 
         iScanPieces = objSQL.Get_ScalerINTEGER_WithTrans(strQuery)
@@ -716,15 +720,13 @@ Public Class frmDeliverySheet
         Return iScanPieces
     End Function
 
-    Private Sub SaveRunningSheet()
+    Private Sub SaveRunningSheet(Optional ByRef saveOnly As Boolean = False)
         Dim objSQL As New clsSqlConn
         Dim objDespatchDef As New clsDespatchDefaults
 
         With objSQL
             Try
                 ''Dim bFoundMissingItems As Boolean = False
-                UGSOLines.UpdateData()
-                UGSOList.UpdateData()
 
                 If pubMeIsNewRecord = True Then
                     Call GetNextRunnID()
@@ -732,34 +734,39 @@ Public Class frmDeliverySheet
 
                 .Begin_Trans()
 
-                If pubMeIsNewRecord = True Then
-                    strSQL = "set dateformat dmy Insert into spilRunnSheetHeader " &
-                        "(RunnNo, AreaID, RunnDate, RunnTime, VehRegNo, DrivName, Reference, TelNo, Notes, " &
-                        "DocPrinted, EnteredBy, EnteredDateTime, Status, FacilityID, Duration) " &
-                        "values(" & txtRunnNumber.Value & ", " & cboArea.Value & ", '" & txtRunningDate.Value & "', " &
-                        "'" & txtRunnTime.Value & "', '" & txtVehRegNo.Text.Replace("'", "") & "', " &
-                        "'" & txtDrivName.Text.Replace("'", "") & "', '" & txtReference.Text.Replace("'", "") & "', " &
-                        "'" & txtTeleNo.Text.Replace("'", "") & "', '" & txtNotes.Text.Replace("'", "") & "', 0, " &
-                        "'" & strUserName & "', '" & Now & "', " & GlassReceiptState.UnProcessed & ", " &
-                        "" & cmbFacility.Value & ", '" & cmbDuration.Value & "')"
-                Else
-                    strSQL = "set dateformat dmy update spilRunnSheetHeader " &
-                        "set AreaID=" & cboArea.Value & "," &
-                        "RunnDate='" & txtRunningDate.Value & "'," &
-                        "RunnTime='" & txtRunnTime.Value & "'," &
-                        "VehRegNo='" & txtVehRegNo.Text.Replace("'", "") & "'," &
-                        "DrivName='" & txtDrivName.Text.Replace("'", "") & "'," &
-                        "Reference='" & txtReference.Text.Replace("'", "") & "'," &
-                        "TelNo='" & txtTeleNo.Text.Replace("'", "") & "'," &
-                        "Notes='" & txtNotes.Text.Replace("'", "") & "'," &
-                        "EnteredBy='" & strUserName & "'," &
-                        "EnteredDateTime='" & Now & "', " &
-                        "FacilityID=" & cmbFacility.Value & ", " &
-                        "Duration='" & cmbDuration.Value & "' " &
-                        "where RunnNo=" & txtRunnNumber.Value & ""
-                End If
+                'If pubMeIsNewRecord = True Then
+                '    strSQL = "set dateformat dmy Insert into spilRunnSheetHeader " &
+                '        "(RunnNo, AreaID, RunnDate, RunnTime, VehRegNo, DrivName, Reference, TelNo, Notes, " &
+                '        "DocPrinted, EnteredBy, EnteredDateTime, Status, FacilityID, Duration) " &
+                '        "values(" & txtRunnNumber.Value & ", " & cboArea.Value & ", '" & txtRunningDate.Value & "', " &
+                '        "'" & txtRunnTime.Value & "', '" & txtVehRegNo.Text.Replace("'", "") & "', " &
+                '        "'" & txtDrivName.Text.Replace("'", "") & "', '" & txtReference.Text.Replace("'", "") & "', " &
+                '        "'" & txtTeleNo.Text.Replace("'", "") & "', '" & txtNotes.Text.Replace("'", "") & "', 0, " &
+                '        "'" & strUserName & "', '" & Now & "', " & GlassReceiptState.UnProcessed & ", " &
+                '        "" & cmbFacility.Value & ", '" & cmbDuration.Value & "')"
+                'Else
+                '    strSQL = "set dateformat dmy update spilRunnSheetHeader " &
+                '        "set AreaID=" & cboArea.Value & "," &
+                '        "RunnDate='" & txtRunningDate.Value & "'," &
+                '        "RunnTime='" & txtRunnTime.Value & "'," &
+                '        "VehRegNo='" & txtVehRegNo.Text.Replace("'", "") & "'," &
+                '        "DrivName='" & txtDrivName.Text.Replace("'", "") & "'," &
+                '        "Reference='" & txtReference.Text.Replace("'", "") & "'," &
+                '        "TelNo='" & txtTeleNo.Text.Replace("'", "") & "'," &
+                '        "Notes='" & txtNotes.Text.Replace("'", "") & "'," &
+                '        "EnteredBy='" & strUserName & "'," &
+                '        "EnteredDateTime='" & Now & "', " &
+                '        "FacilityID=" & cmbFacility.Value & ", " &
+                '        "Duration='" & cmbDuration.Value & "' " &
+                '        "where RunnNo=" & txtRunnNumber.Value & ""
+                'End If
 
-                If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
+                'If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
+                '    .Rollback_Trans()
+                '    Exit Sub
+                'End If
+
+                If SaveUsingParaDetails(pubMeIsNewRecord, objSQL) = 0 Then
                     .Rollback_Trans()
                     Exit Sub
                 End If
@@ -772,8 +779,10 @@ Public Class frmDeliverySheet
 
                         If ugR.Cells("RecID").Value = 0 Then
 
-                            strSQL = "insert into spilRunnSheetDetail (RunnNo,OrderIndex,Status,ThisTimeQty,Comment,BalanceToDeliver) values " &
-                            "(" & txtRunnNumber.Value & "," & ugR.Cells("OrderIndex").Value & "," & DeliveryState.DespatchScheduled & "," & ugR.Cells("ThisTimeDelivery").Value & ",'" & IIf(IsNothing(ugR.Cells("Comment").Value), String.Empty, ugR.Cells("Comment").Value.ToString().Replace("'", "")) & "'," & ugR.Cells("BalanceToDeliver").Value & ")"
+                            strSQL = "insert into spilRunnSheetDetail (RunnNo,OrderIndex,Status,ThisTimeQty,Comment, geoCoordinations) values " &
+                            "(" & txtRunnNumber.Value & "," & ugR.Cells("OrderIndex").Value & "," & DeliveryState.DespatchScheduled & "," &
+                            ugR.Cells("ThisTimeDelivery").Value & ",'" & IIf(IsNothing(ugR.Cells("Comment").Value), String.Empty, ugR.Cells("Comment").Value.ToString().Replace("'", "")) &
+                            "', '" & If(IsNothing(ugR.Cells("geoCoordinations").Value) = False, ugR.Cells("geoCoordinations").Value, "") & "')"
 
                             If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
                                 .Rollback_Trans()
@@ -782,7 +791,7 @@ Public Class frmDeliverySheet
 
                             If oProdDef.DeliveryConfirmBy = "RunSheet" Then 'Otherwise this will be done by Delivery Docket
 
-                                strSQL = "update spilInvNum set Delivery_Status=" & DeliveryState.DespatchScheduled & " " &
+                                strSQL = "update spilInvNum Set Delivery_Status=" & DeliveryState.DespatchScheduled & " " &
                                 " where OrderIndex=" & ugR.Cells("OrderIndex").Value & ""
 
                                 If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
@@ -790,7 +799,7 @@ Public Class frmDeliverySheet
                                     Exit Sub
                                 End If
 
-                                'strSQL = "update spilInvNumLines set Delivery_Status=" & DeliveryState.Delivered & " " &
+                                'strSQL = "update spilInvNumLines Set Delivery_Status=" & DeliveryState.Delivered & " " &
                                 '" where OrderIndex=" & ugR.Cells("OrderIndex").Value & ""
 
                                 'If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
@@ -815,7 +824,7 @@ Public Class frmDeliverySheet
 
                         Else
                             ' update this time qty
-                            strSQL = "UPDATE spilRunnSheetDetail SET ThisTimeQty = " & ugR.Cells("ThisTimeDelivery").Value & " , Comment = '" & IIf(IsNothing(ugR.Cells("Comment").Value), String.Empty, ugR.Cells("Comment").Value.ToString().Replace("'", "")) & "', BalanceToDeliver=" & ugR.Cells("BalanceToDeliver").Value & " WHERE RecID=" & ugR.Cells("RecID").Value & ""
+                            strSQL = "UPDATE spilRunnSheetDetail Set ThisTimeQty = " & ugR.Cells("ThisTimeDelivery").Value & " , Comment = '" & IIf(IsNothing(ugR.Cells("Comment").Value), String.Empty, ugR.Cells("Comment").Value.ToString().Replace("'", "")) & "' WHERE RecID=" & ugR.Cells("RecID").Value & ""
                             If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
                                 .Rollback_Trans()
                                 Exit Sub
@@ -868,6 +877,7 @@ Public Class frmDeliverySheet
                 ''End If
 
                 ' ''  Dim myDateTime As Date = Format(txtRunningDate.Value, "dd/MM/yyyy") & " " & Format(txtRunnTime.Value, "hh:mm:tt")
+
                 ''strSQL = "set dateformat dmy insert into spil_Scheduler_Appointments (StartDate,EndDate,AllDay,Subject,Location,Description,DocumentIndex,DocumentType,Label) values " & _
                 ''            "('" & txtRunnTime.Value & "','" & txtEndTime.Value & "',0,'" & txtRunnNumber.Value.ToString & "'" & _
                 ''            ",'" & cboArea.Text & "','" & txtVehRegNo.Text & " (" & txtDrivName.Text & ")" & "'," & txtRunnNumber.Value & ",30,1)"
@@ -1040,9 +1050,11 @@ Public Class frmDeliverySheet
                 '    frmRunningSheetsList.PrintDeliveryDockets(txtRunnNumber.Value)
                 'End If
 
-                txtRunnNumber.Value = 0
-
-                Me.Close()
+                SaveMapOnDisk(txtRunnNumber.Value)
+                If saveOnly = False Then
+                    txtRunnNumber.Value = 0
+                    Me.Close()
+                End If
 
             Catch ex As Exception
                 WriteToErrorLog(ex.Message, ex.StackTrace, "SQL Error", "SaveRunningSheet")
@@ -1059,7 +1071,7 @@ Public Class frmDeliverySheet
 
         If (objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually) Then
             ScanType = RunnSheetScanType.ManualOrder
-        ElseIf (objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.AutoSelectDesSchPieces) Then
+        ElseIf (objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually) Then
             ScanType = RunnSheetScanType.DesSchPieces
         End If
 
@@ -1378,27 +1390,27 @@ Public Class frmDeliverySheet
 
                         dsScanQty = .Get_Data_Trans(strSQL)
 
-                            For Each drScanQty In dsScanQty.Tables(0).Rows
-                                Dim sFirstLetter As String = Mid(drScanQty("BarcodeValue"), 1, 1)
-                                Select Case sFirstLetter
-                                    Case "L"
-                                        strSQL = "UPDATE spilInvNumLines SET fQty_Delivered += " & drScanQty("Qty") & " " &
+                        For Each drScanQty In dsScanQty.Tables(0).Rows
+                            Dim sFirstLetter As String = Mid(drScanQty("BarcodeValue"), 1, 1)
+                            Select Case sFirstLetter
+                                Case "L"
+                                    strSQL = "UPDATE spilInvNumLines SET fQty_Delivered += " & drScanQty("Qty") & " " &
                                     "WHERE Bar_CodeValue = '" & drScanQty("BarcodeValue") & "';"
-                                    Case "M"
-                                        strSQL = "UPDATE spilInvNumLines SET fQty_Delivered += " & drScanQty("Qty") & " " &
+                                Case "M"
+                                    strSQL = "UPDATE spilInvNumLines SET fQty_Delivered += " & drScanQty("Qty") & " " &
                                     "WHERE MainBar_CodeValue = '" & drScanQty("BarcodeValue") & "';"
-                                End Select
+                            End Select
 
-                                strSQL += "UPDATE spilPROD_BATCH SET ProductionState = CASE WHEN " &
+                            strSQL += "UPDATE spilPROD_BATCH SET ProductionState = CASE WHEN " &
                                     "Qty_Ord = " & PrevDelivereddQty + ThisTimQty & " THEN " &
                                     "" & GlassProdState.Despatched & " ELSE ProductionState end " &
                                     "where iInvDetailID = " & drScanQty("iInvDetailID") & ";"
 
-                                If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
-                                    .Rollback_Trans()
-                                    Exit Sub
-                                End If
-                            Next
+                            If .GET_INSERT_UPDATE("", "", strSQL) = 0 Then
+                                .Rollback_Trans()
+                                Exit Sub
+                            End If
+                        Next
 
                         'End If
 
@@ -1789,7 +1801,7 @@ testMyText:
 
         If (objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually) Then
             ScanType = RunnSheetScanType.ManualOrder
-        ElseIf (objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.AutoSelectDesSchPieces) Then
+        ElseIf (objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually) Then
             ScanType = RunnSheetScanType.DesSchPieces
         End If
 
@@ -1872,8 +1884,8 @@ testMyText:
     Private Sub tsbVeiwOrder_Click(sender As Object, e As EventArgs) Handles tsbVeiwOrder.Click
         If UGSOList.Selected.Rows.Count > 0 Then
 
-            If UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.ARCreditNote Or UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.ARDebitNote Or _
-                UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.Receipt Or _
+            If UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.ARCreditNote Or UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.ARDebitNote Or
+                UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.Receipt Or
                 UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.POSInvoice Or UGSOList.Selected.Rows(0).Cells("DocType").Value = GlassDocTypes.SOInvoiced Then
                 Exit Sub
             End If
@@ -2289,6 +2301,7 @@ testMyText:
                             End If
                         Next
                     Next
+                    btnRefreshGoogleMap.Visible = True
                 End If
             Else
                 'If UGSOList.Selected.Rows(0).Cells("DelState").Value = DeliveryState.DespatchScheduled Then
@@ -2344,6 +2357,7 @@ testMyText:
                         End If
                     End If
                 Next
+                btnRefreshGoogleMap.Visible = True
             End If
         Catch ex As Exception
             WriteToErrorLog(ex.Message, ex.StackTrace, "SQL Error", "DeleteRowsAdded")
@@ -2354,7 +2368,34 @@ testMyText:
 #Region "Location Extensions"
 #Region "Location Variables"
     Dim directionURL As String = ""
+    Dim stricMapURL As String = ""
+    Dim staticMapimage As Image
     Dim GoogleMapAPIExtensionsObj As New GoogleMapAPIExtensions
+#End Region
+#Region "Google Map CRUD"
+    'Function SaveLocationDetails(ByRef clsInvHeaderObj As clsInvHeader) As Integer
+    '    Dim collspPara As New Collection
+    '    Dim colPara As New spParameters
+    '    Dim newSQLQuery As String = ""
+
+    '    Try
+    '        colPara.ParaName = "@GoogleMapAPIExtensionsObj"
+    '        colPara.ParaValue = If(IsNothing(geometryLocation) = False, geometryLocation, "")
+    '        collspPara.Add(colPara)
+
+    '        colPara.ParaName = "@OrderIndex"
+    '        colPara.ParaValue = clsInvHeaderObj.OrderIndex
+    '        collspPara.Add(colPara)
+
+    '        newSQLQuery += " UPDATE [dbo].[spilRunnSheetHeader] SET [GoogleMapAPIExtensionsObj] = @GoogleMapAPIExtensionsObj WHERE OrderIndex= @OrderIndex"
+
+    '        Return clsInvHeaderObj.EXE_SQL_Trans_Para_Return(newSQLQuery, collspPara)
+    '    Catch ex As Exception
+    '        modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+    '        Return 0
+    '    End Try
+
+    'End Function
 #End Region
 #Region "Location Funtions"
     Function GetLocationDataList() As List(Of String)
@@ -2369,14 +2410,29 @@ testMyText:
         End Try
     End Function
 
-    Function GetDeliveryRouteMapURL() As Integer
+    Function GetMapURL() As Integer
         Dim waypoints As List(Of String) = New List(Of String)
+        Dim urlString As String
+        Dim urlArray() As String
         Try
+            If isGoogleAPIActive = False Then
+                Exit Function
+            End If
             waypoints = GetLocationDataList()
             If UGSOList.Rows.Count > 0 AndAlso waypoints.Count > 0 Then
-                directionURL = GoogleMapAPIExtensionsObj.GetDirectionURL(waypoints, googleAPIKey)
+                urlString = GoogleMapAPIExtensionsObj.GetGoogleMapURL(waypoints, googleAPIKey, If(showLocationInMinimap = False, GoogleMapURLType.DirectionURL, GoogleMapURLType.All))
+                urlArray = urlString.Split("|")
+                directionURL = urlArray(0)
+                stricMapURL = urlArray(1)
                 If IsNothing(directionURL) = True Then
                     directionURL = ""
+                End If
+                If IsNothing(stricMapURL) = True Then
+                    stricMapURL = ""
+                End If
+                If stricMapURL <> "" Then
+                    pbGoogleMap.Load(stricMapURL)
+                    staticMapimage = pbGoogleMap.Image
                 End If
                 Return 1
             Else
@@ -2391,11 +2447,11 @@ testMyText:
 
     Sub ShowDeliveryRouteMapURL()
         Try
-            Dim frmGlazingAddessLocatorGmapObj As New frmGlazingAddessLocatorGmap()
-            frmGlazingAddessLocatorGmapObj.WebBrowser1.Navigate(directionURL)
-            frmGlazingAddessLocatorGmapObj.WebBrowser1.Dock = DockStyle.Fill
-            frmGlazingAddessLocatorGmapObj.WebBrowser1.Visible = True
-            frmGlazingAddessLocatorGmapObj.ShowDialog()
+            'Dim frmGlazingAddessLocatorGmapObj As New frmGlazingAddessLocatorGmap()
+            'frmGlazingAddessLocatorGmapObj.WebBrowser1.Navigate(directionURL)
+            'frmGlazingAddessLocatorGmapObj.WebBrowser1.Dock = DockStyle.Fill
+            'frmGlazingAddessLocatorGmapObj.WebBrowser1.Visible = True
+            'frmGlazingAddessLocatorGmapObj.ShowDialog()
 
         Catch ex As Exception
             modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
@@ -2403,21 +2459,25 @@ testMyText:
     End Sub
 
     Sub EmailDeliveryRouteMap()
-        Dim stringEmailDetails As String
-        Dim stringEmailDetailsArray() As String
+        Dim emailDefaultSubject As String = ""
+        Dim emailDefaultBody As String
         Dim completeEmailBody As String
+        Dim fullPath As String
+        Dim fullPathArray() As String
+        Dim AttDocPara As eMailAttachDocumentPara = Nothing
+        Dim collAttDocuments As New Collection
         Try
-            stringEmailDetails = GoogleMapAPIExtensionsObj.GetEmailDetails()
-            stringEmailDetailsArray = stringEmailDetails.Split("|")
-            If IsNothing(directionURL) = True Then
-                directionURL = ""
-            ElseIf directionURL = "" Then
-                If GetDeliveryRouteMapURL() = 0 Then
-                    Exit Sub
-                End If
+            If GoogleMapURLValidator(directionURL) = False Then
+                Exit Sub
             End If
-            completeEmailBody = GoogleMapAPIExtensionsObj.SetCompleteEmailBodyString(directionURL, stringEmailDetailsArray(1))
-            If GoogleMapAPIExtensionsObj.SendAnEmail(stringEmailDetailsArray(0), completeEmailBody, txtDrivName.Value) = 1 Then
+            emailDefaultBody = GoogleMapAPIExtensionsObj.GetEmailDetails(emailDefaultSubject)
+            fullPath = GetImageLocationPath(txtRunnNumber.Value)
+            fullPathArray = fullPath.Split("|")
+            completeEmailBody = GoogleMapAPIExtensionsObj.SetCompleteEmailBodyString(directionURL, emailDefaultBody, "src='cid:" & fullPathArray(1) & "'", SetEmailContetendgridDetails())
+            AttDocPara.DocumentName = fullPathArray(1)
+            AttDocPara.DocumentPath = fullPathArray(0) & fullPathArray(1)
+            collAttDocuments.Add(AttDocPara)
+            If GoogleMapAPIExtensionsObj.SendAnEmail(emailDefaultSubject, completeEmailBody, txtDrivName.Value, collAttDocuments) = 1 Then
 
             Else
                 modGlazingQuoteExtension.GQShowMessage("Email not sent", Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
@@ -2426,6 +2486,165 @@ testMyText:
 
         Catch ex As Exception
             modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+        End Try
+    End Sub
+
+    Sub ShowDeliveryMap()
+        Try
+            If isGoogleAPIActive = False Then
+                Exit Sub
+            End If
+            Dim defaultBroswer As String = GoogleMapAPIExtensionsObj.GetSystemDefaultBrowser()
+            If IsNothing(defaultBroswer) = False AndAlso defaultBroswer <> "" Then
+                If GetMapURL() = 1 Then
+                    Process.Start(defaultBroswer, directionURL)
+                    ShowDeliveryRouteMapURL()
+                End If
+            Else
+                modGlazingQuoteExtension.GQShowMessage("No web browser found.", Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+            End If
+        Catch ex As Exception
+            modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+        End Try
+    End Sub
+
+    Sub EmilDeliveryMap()
+        Try
+            If UGSOList.Rows.Count > 0 Then
+                If GoogleMapURLValidator(directionURL) = False Then
+                    Exit Sub
+                End If
+                If IsNothing(txtDrivName.Value) = False AndAlso txtDrivName.Value <> "" Then
+                    Dim result As DialogResult = modGlazingQuoteExtension.GQShowMessage("Do you wont to save the delivery sheet", Me.Text, MsgBoxStyle.Question, "question", "Save before email.")
+                    If result = DialogResult.Yes Then
+                        SaveRunningSheet(True)
+                        EmailDeliveryRouteMap()
+                    End If
+                Else
+                    modGlazingQuoteExtension.GQShowMessage("Please check the selected driver email address.", Me.Text, MsgBoxStyle.Critical, "warning", "Error in the driver's email address.")
+                End If
+            Else
+                modGlazingQuoteExtension.GQShowMessage("No address to show the map", Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+            End If
+        Catch ex As Exception
+            modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+        End Try
+    End Sub
+
+    Function GetImageLocationPath(ByRef runningSheetNumber As Integer, Optional ByRef getCombination As Boolean = True) As String
+        Dim imagePath As String
+        Dim imageFileName As String
+        Dim fulPath As String
+        Try
+            imagePath = EvoGlassReportPath & "\Google_Static_Maps"
+            imageFileName = "imgGSM" & runningSheetNumber & ".png"
+            If Directory.Exists(imagePath) = False Then
+                Directory.CreateDirectory(imagePath)
+            End If
+            imagePath = imagePath & "\"
+            If getCombination = True Then
+                fulPath = imagePath & "|" & imageFileName
+            Else
+                fulPath = imagePath & imageFileName
+            End If
+            Return fulPath
+        Catch ex As Exception
+            modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+            Return ""
+        End Try
+    End Function
+
+    Function SaveMapOnDisk(ByRef runningSheetNumber As Integer) As Integer
+        Dim imageFullPath As String
+        Dim mapImage As Image
+        Try
+            mapImage = pbGoogleMap.Image
+            If IsNothing(mapImage) = True Then
+                GetMapURL()
+            End If
+            imageFullPath = GetImageLocationPath(runningSheetNumber, False)
+
+            If IsNothing(imageFullPath) = False Then
+                GoogleMapAPIExtensionsObj.SaveRouteMap(imageFullPath, mapImage)
+            Else
+
+            End If
+            Return 1
+        Catch ex As Exception
+            modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+            Return 0
+        End Try
+    End Function
+
+    Function SetEmailContetendgridDetails() As String
+        Dim list As String = ""
+        Dim sqlQuary As String = ""
+        Dim ds As DataSet
+        Dim orderIndexList As New List(Of Integer)
+        Try
+            For Each row As UltraGridRow In UGSOList.Rows
+                orderIndexList.Add(row.Cells("OrderIndex").Value)
+            Next
+
+            For Each item As Integer In GoogleMapAPIExtensionsObj.waypointOrder
+                sqlQuary += "Select  OrderIndex, OrderNum, Address1, Address2, Address3, Address4, Address5 from spilInvNum where OrderIndex = '" & orderIndexList(item) & "'"
+            Next
+            ds = GoogleMapAPIExtensionsObj.GetData(sqlQuary)
+            For Each tb As DataTable In ds.Tables
+                For Each dr As DataRow In tb.Rows
+                    Dim wayPoints As String = If(dr("Address1") <> "", dr("Address1") & ", ", "") & If(dr("Address2") <> "", dr("Address2") & ", ", "") & If(dr("Address3") <> "", dr("Address3") & ", ", "") & If(dr("Address4") <> "", dr("Address4") & ", ", "") & dr("Address5") & " (" & dr("orderNum") & ")"
+                    list += "<li style='font-size: 10px; line-height: 10px; text-align: Left;'><span style='font-size: 10px; line-height: 20px;'>" & wayPoints & "</span></li>"
+                Next
+            Next
+            Return list
+        Catch ex As Exception
+            Return ""
+        End Try
+    End Function
+
+    Function GoogleMapURLValidator(ByRef GoogleMapURL As String) As Boolean
+        Try
+            If IsNothing(GoogleMapURL) = True Then
+                GoogleMapURL = ""
+            ElseIf GoogleMapURL = "" Then
+                If GetMapURL() = 0 Then
+                    Return True
+                End If
+            End If
+            Return True
+        Catch ex As Exception
+            Return False
+        End Try
+    End Function
+
+#End Region
+#Region "Location Controllers handlers"
+    Sub GoogleMapControllerHandler(ByRef state As Boolean)
+        Try
+            TsbShowDeliveryRouteMapToolStripMenuItem.Enabled = state
+            TsbEmailDeliveryRouteMapToolStripMenuItem.Enabled = state
+            btnRefreshGoogleMap.Visible = state
+            pbGoogleMap.Visible = state
+        Catch ex As Exception
+            modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+        End Try
+    End Sub
+
+    Private Sub TsbShowDeliveryRouteMapToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TsbShowDeliveryRouteMapToolStripMenuItem.Click
+        ShowDeliveryMap()
+    End Sub
+
+    Private Sub TsbEmailDeliveryRouteMapToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TsbEmailDeliveryRouteMapToolStripMenuItem.Click
+        EmilDeliveryMap()
+    End Sub
+
+    Private Sub TsbLocationSettingsToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TsbLocationSettingsToolStripMenuItem.Click
+        Try
+            Dim frmEmailSettings As New frmGoogleMapAPIDashboard()
+            frmEmailSettings.StartPosition = FormStartPosition.CenterScreen
+            frmEmailSettings.ShowDialog()
+        Catch ex As Exception
+
         End Try
     End Sub
 #End Region
@@ -2602,11 +2821,9 @@ testMyText:
                 iThisTimeQty = GetDespathScheduledQuantity(iOrderIndex)
                 If iThisTimeQty <= 0 Then Exit Sub
             ElseIf objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually Then
-                If ScanType = RunnSheetScanType.ScanPieces Then
+                If (ScanType = RunnSheetScanType.ScanPieces) Then
                     iThisTimeQty = GetManuallyScanPieces(iOrderIndex)
                     If iThisTimeQty <= 0 Then Exit Sub
-                'else If ScanType = RunnSheetScanType.ManualOrder Then
-                '    iThisTimeQty = 
                 End If
             End If
 
@@ -2731,7 +2948,7 @@ testMyText:
                     ugR.Appearance.ForeColor = Color.SaddleBrown
                 End If
 
-                Call AddAllSalesOrderLines(booIsFound, iOrderIndex, DS_ITEMS.Tables(1), iInvDetailID, objDespatchDef, ugR.Cells("ScanTypeID").Value)
+                Call AddAllSalesOrderLines(iOrderIndex, DS_ITEMS.Tables(1), iInvDetailID, objDespatchDef, ugR.Cells("ScanTypeID").Value)
             Next
 
             'Dim ugSORow As UltraGridRow = UGSOList.ActiveRow
@@ -2768,7 +2985,7 @@ testMyText:
     End Sub
 
     'Added by Hashini on 18-10-2018 - To display SO Lines
-    Private Sub AddAllSalesOrderLines(booIsFound As Boolean, ByVal iOrderIndex As Integer, ByRef dtSOAllLines As DataTable, ByVal iInvDetailID As Integer, objDespatchDef As clsDespatchDefaults, ScanType As Integer)
+    Private Sub AddAllSalesOrderLines(ByVal iOrderIndex As Integer, ByRef dtSOAllLines As DataTable, ByVal iInvDetailID As Integer, objDespatchDef As clsDespatchDefaults, ScanType As Integer)
         Dim objSQL As New clsSqlConn
         Try
 
@@ -2782,195 +2999,80 @@ testMyText:
                 End If
             Next
 
-            'If pubMeIsNewRecord = True Then
-            If booIsFound = False Then
-                    For Each drSOLine As DataRow In dtSOAllLines.Rows
-                        if boolsFound = False
-                            ugRow1 = UGSOLines.DisplayLayout.Bands(0).AddNew()
-                        End If
-
-                        ugRow1.Cells("OrderIndex").Value = drSOLine("OrderIndex")
-                        ugRow1.Cells("iInvDetailID").Value = drSOLine("DetailID")
-                        ugRow1.Cells("LineNo").Value = drSOLine("idInvoiceLines")
-                        ugRow1.Cells("Description").Value = drSOLine("ItemDescription")
-                        ugRow1.Cells("Thickness").Value = drSOLine("Thickness")
-                        ugRow1.Cells("Height").Value = drSOLine("Height")
-                        ugRow1.Cells("Width").Value = drSOLine("Width")
-                        ugRow1.Cells("Size").Value = drSOLine("Height") & " X " & drSOLine("Width")
-
-                        ugRow1.Cells("OrderQty").Value = drSOLine("fQuantity")
-                        ugRow1.Cells("PrevDelQty").Value = drSOLine("DeliveredFinishedItems")
-                        ugRow1.Cells("RecutQty").Value = drSOLine("ReBatchQty")
-
-                        ugRow1.Cells("ThisDelQty").Activation = Activation.AllowEdit
-
-                        If objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually Then
-                            If (ScanType = RunnSheetScanType.ManualOrder) Then
-                                If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
-                                    ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
-                                Else
-                                    ugRow1.Cells("ThisDelQty").Value = 0
-                                End If
-                            ElseIf (ScanType = RunnSheetScanType.ScanPieces) Then
-                                ugRow1.Cells("ThisDelQty").Value = GetManuallyScanLinePieces(iOrderIndex, drSOLine("DetailID"))
-                            End If
-                        Else
-                            If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
-                                ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
-                            Else
-                                ugRow1.Cells("ThisDelQty").Value = 0
-                            End If
-                        End If
-
-                        ugRow1.Cells("GlassWeight").Value = GetGlassWeight(ugRow1.Cells("ThisDelQty").Value, drSOLine)
-
-                            ugRow1.Cells("LineType").Value = drSOLine("LineType")
-                            ugRow1.Cells("LineTypeID").Value = drSOLine("LineTypeID")
-                            ugRow1.Cells("Barcodes").Hidden = True
-
-                    If (ugRow1.Cells("ThisDelQty").Value + ugRow1.Cells("PrevDelQty").Value + ugRow1.Cells("RecutQty").Value) < ugRow1.Cells("OrderQty").Value Then
-                        ugRow1.CellAppearance.ForeColor = Color.FromArgb(130, 7, 7)
-                        ugRow1.Cells("ThisDelQty").Appearance.BackColor = Color.Yellow
-                    Else
-                        ugRow1.CellAppearance.ForeColor = Color.Green
-                    End If
-
-                    If drSOLine("LineTypeID") = LineState.ReBatched Then
-                        ugRow1.CellAppearance.ForeColor = Color.Red
-                    End If
-                Next
-            else
-                For Each drSOLine As DataRow In dtSOAllLines.Rows
-                    For Each ugRow1 In UGSOLines.Rows
-                        If ugRow1.Cells("OrderIndex").Value = iOrderIndex AndAlso ugRow1.Cells("iInvDetailID").Value = drSOLine("DetailID") AndAlso ugRow1.Cells("iInvDetailID").Value = iInvDetailID Then
-                        'If ugRow1.Cells("OrderIndex").Value = iOrderIndex AndAlso ugRow1.Cells("iInvDetailID").Value = iInvDetailID Then
-
-                            boolsFound = True
-                            Exit For
-                        End If
-                    Next
-
-                    if boolsFound = True
-                        If objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually Then
-                            If (ScanType = RunnSheetScanType.ManualOrder) Then
-                                If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
-                                    ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
-                                Else
-                                    ugRow1.Cells("ThisDelQty").Value = 0
-                                End If
-                            ElseIf (ScanType = RunnSheetScanType.ScanPieces) Then
-                                ugRow1.Cells("ThisDelQty").Value = GetManuallyScanLinePieces(iOrderIndex, drSOLine("DetailID"))
-                            End If
-                        Else
-                            If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
-                                ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
-                            Else
-                                ugRow1.Cells("ThisDelQty").Value = 0
-                            End If
-                        End If
-
-                        If (ugRow1.Cells("ThisDelQty").Value + ugRow1.Cells("PrevDelQty").Value + ugRow1.Cells("RecutQty").Value) < ugRow1.Cells("OrderQty").Value Then
-                            ugRow1.CellAppearance.ForeColor = Color.FromArgb(130, 7, 7)
-                            ugRow1.Cells("ThisDelQty").Appearance.BackColor = Color.Yellow
-                        Else
-                            ugRow1.CellAppearance.ForeColor = Color.Green
-                        End If
-
-                        If drSOLine("LineTypeID") = LineState.ReBatched Then
-                            ugRow1.CellAppearance.ForeColor = Color.Red
-
-                            'ElseIf drSOLine("LineTypeID") = LineState.NCR Then
-                            '    ugRow1.CellAppearance.ForeColor = Color.Magenta
-                        End If
-                    End If
-                Next
-            End If
-
             'For Each drSOLine As DataRow In DS_ITEMS.Tables(0).Rows
-            'For Each drSOLine As DataRow In dtSOAllLines.Rows
-            '    For Each ugRow1 In UGSOLines.Rows
-            '        If ugRow1.Cells("OrderIndex").Value = iOrderIndex AndAlso ugRow1.Cells("iInvDetailID").Value = drSOLine("DetailID") AndAlso ugRow1.Cells("iInvDetailID").Value = iInvDetailID Then
-            '        'If ugRow1.Cells("OrderIndex").Value = iOrderIndex AndAlso ugRow1.Cells("iInvDetailID").Value = iInvDetailID Then
+            For Each drSOLine As DataRow In dtSOAllLines.Rows
+                If boolsFound = False Then
+                    ugRow1 = UGSOLines.DisplayLayout.Bands(0).AddNew()
+                End If
 
-            '            boolsFound = True
-            '            Exit For
-            '        End If
-            '    Next
+                ugRow1.Cells("OrderIndex").Value = drSOLine("OrderIndex")
+                ugRow1.Cells("iInvDetailID").Value = drSOLine("DetailID")
+                ugRow1.Cells("LineNo").Value = drSOLine("idInvoiceLines")
+                ugRow1.Cells("Description").Value = drSOLine("ItemDescription")
+                ugRow1.Cells("Thickness").Value = drSOLine("Thickness")
+                ugRow1.Cells("Height").Value = drSOLine("Height")
+                ugRow1.Cells("Width").Value = drSOLine("Width")
+                ugRow1.Cells("Size").Value = drSOLine("Height") & " X " & drSOLine("Width")
 
+                ugRow1.Cells("OrderQty").Value = drSOLine("fQuantity")
+                ugRow1.Cells("PrevDelQty").Value = drSOLine("DeliveredFinishedItems")
+                ugRow1.Cells("RecutQty").Value = drSOLine("ReBatchQty")
 
-            '    'If boolsFound = False Then
-            '    If booIsFound = False Then
-            '        ugRow1 = UGSOLines.DisplayLayout.Bands(0).AddNew()
-            '    End If
+                ugRow1.Cells("ThisDelQty").Activation = Activation.AllowEdit
 
-            '    ugRow1.Cells("OrderIndex").Value = drSOLine("OrderIndex")
-            '    ugRow1.Cells("iInvDetailID").Value = drSOLine("DetailID")
-            '    ugRow1.Cells("LineNo").Value = drSOLine("idInvoiceLines")
-            '    ugRow1.Cells("Description").Value = drSOLine("ItemDescription")
-            '    ugRow1.Cells("Thickness").Value = drSOLine("Thickness")
-            '    ugRow1.Cells("Height").Value = drSOLine("Height")
-            '    ugRow1.Cells("Width").Value = drSOLine("Width")
-            '    ugRow1.Cells("Size").Value = drSOLine("Height") & " X " & drSOLine("Width")
+                If objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually Then
+                    If (ScanType = RunnSheetScanType.ManualOrder) Then
+                        If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
+                            ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
+                        Else
+                            ugRow1.Cells("ThisDelQty").Value = 0
+                        End If
+                    ElseIf (ScanType = RunnSheetScanType.ScanPieces) Then
+                        ugRow1.Cells("ThisDelQty").Value = GetManuallyScanLinePieces(iOrderIndex, drSOLine("DetailID"))
+                    End If
+                Else
+                    If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
+                        ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
+                    Else
+                        ugRow1.Cells("ThisDelQty").Value = 0
+                    End If
+                End If
 
-            '    ugRow1.Cells("OrderQty").Value = drSOLine("fQuantity")
-            '    ugRow1.Cells("PrevDelQty").Value = drSOLine("DeliveredFinishedItems")
-            '    ugRow1.Cells("RecutQty").Value = drSOLine("ReBatchQty")
+                ugRow1.Cells("GlassWeight").Value = GetGlassWeight(ugRow1.Cells("ThisDelQty").Value, drSOLine)
 
-            '    ugRow1.Cells("ThisDelQty").Activation = Activation.AllowEdit
-
-            '    If objDespatchDef.RunnSheetScanOption = RunnSheetScanOptions.ScanPiecesManually Then
-            '        If (ScanType = RunnSheetScanType.ManualOrder) Then
-            '            If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
-            '                ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
-            '            Else
-            '                ugRow1.Cells("ThisDelQty").Value = 0
-            '            End If
-            '        ElseIf (ScanType = RunnSheetScanType.ScanPieces) Then
-            '            ugRow1.Cells("ThisDelQty").Value = GetManuallyScanLinePieces(iOrderIndex, drSOLine("DetailID"))
-            '        End If
-            '    Else
-            '        If drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") > 0 Then
-            '            ugRow1.Cells("ThisDelQty").Value = drSOLine("fQuantity") - drSOLine("DeliveredFinishedItems") - drSOLine("ReBatchQty")
-            '        Else
-            '            ugRow1.Cells("ThisDelQty").Value = 0
-            '        End If
-            '    End If
-
-            '    ugRow1.Cells("GlassWeight").Value = GetGlassWeight(ugRow1.Cells("ThisDelQty").Value, drSOLine)
-
-            '        ugRow1.Cells("LineType").Value = drSOLine("LineType")
-            '        ugRow1.Cells("LineTypeID").Value = drSOLine("LineTypeID")
-            '        ugRow1.Cells("Barcodes").Hidden = True
+                ugRow1.Cells("LineType").Value = drSOLine("LineType")
+                ugRow1.Cells("LineTypeID").Value = drSOLine("LineTypeID")
+                ugRow1.Cells("Barcodes").Hidden = True
 
 
-            '        'ugRow.Cells("BackOrder").Value = 0
+                'ugRow.Cells("BackOrder").Value = 0
 
-            '        'If drSOLine("LineType") = 1 Then
-            '        '    ugRow1.Cells("LineType").Value = "Re-Cut"
-            '        '    ugRow1.CellAppearance.ForeColor = Color.Red
-            '        'ElseIf drSOLine("LineType") = 2 Then
-            '        '    ugRow1.Cells("LineType").Value = "NCR"
-            '        '    ugRow1.CellAppearance.ForeColor = Color.Magenta
-            '        'Else
-            '        '    ugRow1.Cells("LineType").Value = "Normal"
-            '        'End If
-            '        'GetBarcodes(ugRow1, iOrderIndex, drSOLine("DetailID"), boolsFound)
+                'If drSOLine("LineType") = 1 Then
+                '    ugRow1.Cells("LineType").Value = "Re-Cut"
+                '    ugRow1.CellAppearance.ForeColor = Color.Red
+                'ElseIf drSOLine("LineType") = 2 Then
+                '    ugRow1.Cells("LineType").Value = "NCR"
+                '    ugRow1.CellAppearance.ForeColor = Color.Magenta
+                'Else
+                '    ugRow1.Cells("LineType").Value = "Normal"
+                'End If
+                'GetBarcodes(ugRow1, iOrderIndex, drSOLine("DetailID"), boolsFound)
 
-            '        If (ugRow1.Cells("ThisDelQty").Value + ugRow1.Cells("PrevDelQty").Value + ugRow1.Cells("RecutQty").Value) < ugRow1.Cells("OrderQty").Value Then
-            '            ugRow1.CellAppearance.ForeColor = Color.FromArgb(130, 7, 7)
-            '            ugRow1.Cells("ThisDelQty").Appearance.BackColor = Color.Yellow
-            '        Else
-            '            ugRow1.CellAppearance.ForeColor = Color.Green
-            '        End If
+                If (ugRow1.Cells("ThisDelQty").Value + ugRow1.Cells("PrevDelQty").Value + ugRow1.Cells("RecutQty").Value) < ugRow1.Cells("OrderQty").Value Then
+                    ugRow1.CellAppearance.ForeColor = Color.FromArgb(130, 7, 7)
+                    ugRow1.Cells("ThisDelQty").Appearance.BackColor = Color.Yellow
+                Else
+                    ugRow1.CellAppearance.ForeColor = Color.Green
+                End If
 
-            '        If drSOLine("LineTypeID") = LineState.ReBatched Then
-            '            ugRow1.CellAppearance.ForeColor = Color.Red
+                If drSOLine("LineTypeID") = LineState.ReBatched Then
+                    ugRow1.CellAppearance.ForeColor = Color.Red
 
-            '            'ElseIf drSOLine("LineTypeID") = LineState.NCR Then
-            '            '    ugRow1.CellAppearance.ForeColor = Color.Magenta
-            '        End If
+                    'ElseIf drSOLine("LineTypeID") = LineState.NCR Then
+                    '    ugRow1.CellAppearance.ForeColor = Color.Magenta
+                End If
 
-            'Next
+            Next
             'SOlinesBalanceToDeliver()
             FillBackOrdQty()
 
@@ -3075,15 +3177,15 @@ testMyText:
 
         objSQL.Begin_Trans()
 
-        strQuery = "DELETE FROM spilRunnSheetDownloadedBarCodes WHERE SerialBarcodeValue " & _
-            "IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE Qty_ReBatched = 1 AND " & _
+        strQuery = "DELETE FROM spilRunnSheetDownloadedBarCodes WHERE SerialBarcodeValue " &
+            "IN (SELECT BarCodeV FROM spilPROD_SERIALS WHERE Qty_ReBatched = 1 AND " &
             "OrderIndex = " & OrderIndex & " AND iInvDetailID = " & InvDetailID & ") AND Status = 'OK'"
         If objSQL.Exe_Query_Trans(strQuery) = 0 Then
             objSQL.Rollback_Trans()
             Exit Function
         End If
 
-        strQuery = "SELECT COUNT(BarcodeValue) FROM spilRunnSheetDownloadedBarCodes " & _
+        strQuery = "SELECT COUNT(BarcodeValue) FROM spilRunnSheetDownloadedBarCodes " &
            "WHERE OrderIndex = " & OrderIndex & " AND iInvDetailID = " & InvDetailID & " AND Status = 'OK' AND RunnNo = -999"
 
         iScanPieces = objSQL.Get_ScalerINTEGER_WithTrans(strQuery)
@@ -3384,16 +3486,115 @@ testMyText:
         End Try
     End Sub
 
-    Private Sub UGSOLines_InitializeRow(sender As Object, e As InitializeRowEventArgs) Handles UGSOLines.InitializeRow
-        'If (e.Row.Cells("ThisDelQty").Value + e.Row.Cells("PrevDelQty").Value + e.Row.Cells("RecutQty").Value) < e.Row.Cells("OrderQty").Value Then
-        '    e.Row.CellAppearance.ForeColor = Color.FromArgb(130, 7, 7)
-        '    e.Row.Cells("ThisDelQty").Appearance.BackColor = Color.Yellow
-        'Else
-        '    e.Row.CellAppearance.ForeColor = Color.Green
-        'End If
+    Function SaveUsingParaDetails(ByRef isNewRecord As Boolean, ByRef clsSqlConnObj As clsSqlConn) As Integer
+        Dim collspPara As New Collection
+        Dim colPara As New spParameters
+        Dim newSQLQuery As String = ""
+        Try
+            colPara.ParaName = "@RunnNo"
+            colPara.ParaValue = If(IsNothing(txtRunnNumber.Value) = False, txtRunnNumber.Value, 0)
+            collspPara.Add(colPara)
 
-        'If e.Row.Cells("LineTypeID").Value = LineState.ReBatched Then
-        '    e.Row.CellAppearance.ForeColor = Color.Red
-        'End If
+            colPara.ParaName = "@AreaID"
+            colPara.ParaValue = If(IsNothing(cboArea.Value) = False, cboArea.Value, 0)
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@RunnDate"
+            colPara.ParaValue = If(IsNothing(txtRunningDate.Value) = False, txtRunningDate.Value, "01/01/1900 00:00:00 AM")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@RunnTime"
+            colPara.ParaValue = If(IsNothing(txtRunnTime.Value) = False, txtRunnTime.Value, "01/01/1900 00:00:00 AM")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@VehRegNo"
+            colPara.ParaValue = If(IsNothing(txtVehRegNo) = False, txtVehRegNo.Text.Replace("'", ""), "")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@DrivName"
+            colPara.ParaValue = If(IsNothing(txtDrivName) = False, txtDrivName.Text.Replace("'", ""), "")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@Reference"
+            colPara.ParaValue = If(IsNothing(txtReference) = False, txtRunnNumber.Text.Replace("'", ""), "")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@TelNo"
+            colPara.ParaValue = If(IsNothing(txtTeleNo) = False, txtTeleNo.Text.Replace("'", ""), "")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@Notes"
+            colPara.ParaValue = If(IsNothing(txtNotes) = False, txtNotes.Text.Replace("'", ""), "")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@DocPrinted"
+            colPara.ParaValue = 0
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@EnteredBy"
+            colPara.ParaValue = If(IsNothing(strUserName) = False, strUserName, "")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@EnteredDateTime"
+            colPara.ParaValue = Now
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@Status"
+            colPara.ParaValue = GlassReceiptState.UnProcessed
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@FacilityID"
+            colPara.ParaValue = If(IsNothing(cmbFacility.Value) = False, cmbFacility.Value, 1)
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@Duration"
+            colPara.ParaValue = If(IsNothing(cmbDuration.Value) = False, cmbDuration.Value, 0)
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@directionURL"
+            colPara.ParaValue = If(IsNothing(directionURL) = False, directionURL, "")
+            collspPara.Add(colPara)
+
+            colPara.ParaName = "@googleMapImagePath"
+            colPara.ParaValue = If(IsNothing(GetImageLocationPath(txtRunnNumber.Value, False)) = False, GetImageLocationPath(txtRunnNumber.Value, False), "")
+            collspPara.Add(colPara)
+
+            If isNewRecord = True Then
+                newSQLQuery = "set dateformat dmy Insert into spilRunnSheetHeader " &
+            "(RunnNo,  AreaID,  RunnDate,  RunnTime,  VehRegNo,  DrivName,  Reference,  TelNo,  Notes, " &
+            "DocPrinted,  EnteredBy,  EnteredDateTime,  Status,  FacilityID,  Duration, directionURL) " &
+            "values(@RunnNo,  @AreaID,  @RunnDate,  @RunnTime,  @VehRegNo,  @DrivName,  @Reference,  @TelNo, " &
+            "@Notes,  @DocPrinted,  @EnteredBy,  @EnteredDateTime,  @Status,  @FacilityID,  @Duration, @directionURL)"
+            Else
+                newSQLQuery = "set dateformat dmy update spilRunnSheetHeader " &
+            "set AreaID= @AreaID, RunnDate= @RunnDate, RunnTime= @RunnTime, VehRegNo= @VehRegNo, DrivName= @DrivName" &
+            ", Reference= @Reference, TelNo= @TelNo, Notes= @Notes, EnteredBy= @EnteredBy, EnteredDateTime= @EnteredDateTime" &
+            ", FacilityID= @FacilityID, Duration= @Duration, directionURL=@directionURL where RunnNo=@RunnNo"
+            End If
+
+            Return clsSqlConnObj.EXE_SQL_Trans_Para_Return(newSQLQuery, collspPara)
+
+        Catch ex As Exception
+            modGlazingQuoteExtension.GQShowMessage(ex.Message, Me.Text, MsgBoxStyle.Critical, "warning", GetCurrentMethod.Name)
+            Return 0
+        End Try
+    End Function
+
+    Private Sub PictureBox1_Click(sender As Object, e As EventArgs) Handles pbGoogleMap.Click
+        'GetMapURL()
+    End Sub
+
+    Private Sub UGSOList_AfterRowsDeleted(sender As Object, e As EventArgs) Handles UGSOList.AfterRowsDeleted
+        btnRefreshGoogleMap.Visible = True
+    End Sub
+
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles btnRefreshGoogleMap.Click
+        btnRefreshGoogleMap.Visible = False
+        GetMapURL()
+    End Sub
+
+    Private Sub UGSOList_AfterRowInsert(sender As Object, e As RowEventArgs) Handles UGSOList.AfterRowInsert
+        btnRefreshGoogleMap.Visible = True
+
     End Sub
 End Class
